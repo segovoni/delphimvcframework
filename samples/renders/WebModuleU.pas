@@ -99,10 +99,10 @@ begin
   DMVC.SetViewEngine(TMVCMustacheViewEngine);
 
   // Register a custom serializer for TUserRoles (is compatible only with the default serializer)
-  DMVC
-    .Serializers
-    .Items[TMVCMediaType.APPLICATION_JSON]
-    .RegisterTypeSerializer(TypeInfo(TUserRoles), TUserRolesSerializer.Create);
+//  DMVC
+//    .Serializers
+//    .Items[TMVCMediaType.APPLICATION_JSON]
+//    .RegisterTypeSerializer(TypeInfo(TUserRoles), TUserRolesSerializer.Create);
 
   // You can check how this custom type serializer works
   // calling http://localhost:8080/customserializationtype
@@ -113,7 +113,7 @@ begin
     .RegisterTypeSerializer(TypeInfo(TNullableRecordAlias), TNullableAliasSerializer.Create);
 
   // This line registers custom serializers for TBitmap, TPngImage (Only MSWindows) and TJPEGImage (Only MSWindows)
-  RegisterOptionalCustomTypesSerializers(DMVC.Serializers);
+  RegisterOptionalCustomTypesSerializersForJSON(DMVC.Serializers);
 end;
 
 end.

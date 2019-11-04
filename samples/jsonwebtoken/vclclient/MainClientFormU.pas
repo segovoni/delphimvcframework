@@ -8,6 +8,7 @@ uses
   System.SysUtils,
   System.Variants,
   System.Classes,
+  MVCFramework.Middleware.JWT,
   Vcl.Graphics,
   Vcl.Controls,
   Vcl.Forms,
@@ -62,7 +63,9 @@ begin
     lClient.UseBasicAuthentication := False;
     lClient.ReadTimeOut(0);
     if not FJWT.IsEmpty then
-      lClient.RequestHeaders.Values['Authorization'] := 'bearer ' + FJWT;
+    begin
+      lClient.RequestHeaders.Values[TMVCJWTDefaults.AUTHORIZATION_HEADER] := 'Bearer ' + FJWT;
+    end;
     lQueryStringParams := TStringList.Create;
     try
       lQueryStringParams.Values['firstname'] := 'Daniele';
@@ -86,7 +89,7 @@ begin
 
     lClient.ReadTimeOut(0);
     if not FJWT.IsEmpty then
-      lClient.RequestHeaders.Values['Authorization'] := 'bearer ' + FJWT;
+      lClient.RequestHeaders.Values[TMVCJWTDefaults.AUTHORIZATION_HEADER] := 'Bearer ' + FJWT;
     lQueryStringParams := TStringList.Create;
     try
       lQueryStringParams.Values['firstname'] := 'Daniele';
@@ -113,9 +116,7 @@ begin
   lClient := TRESTClient.Create('localhost', 8080);
   try
     lClient.ReadTimeOut(0);
-    lClient
-      .Header('username', 'user1')
-      .Header('password', 'user1');
+    lClient.Authentication('user1', 'user1');
     lRest := lClient.doPOST('/login', []);
     if lRest.HasError then
     begin
@@ -147,9 +148,7 @@ begin
   lClient := TRESTClient.Create('localhost', 8080);
   try
     lClient.ReadTimeOut(0);
-    lClient
-      .Header('username', 'user_raise_exception')
-      .Header('password', 'user_raise_exception');
+    lClient.Authentication('user_raise_exception', 'user_raise_exception');
     lRest := lClient.doPOST('/login', []);
     if lRest.HasError then
     begin

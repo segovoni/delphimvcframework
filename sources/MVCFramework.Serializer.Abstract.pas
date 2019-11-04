@@ -54,6 +54,7 @@ type
     function GetNameAs(const AOwner: TComponent; const AComponentName: string; const ADefaultValue: string): string;
     function IsIgnoredAttribute(const AAttributes: TMVCIgnoredList; const AName: string): Boolean;
     function IsIgnoredComponent(const AOwner: TComponent; const AComponentName: string): Boolean;
+    function GetObjectTypeOfGenericList(const ATypeInfo: PTypeInfo): TClass;
   public
     procedure RegisterTypeSerializer(const ATypeInfo: PTypeInfo; AInstance: IMVCTypeSerializer);
     constructor Create;
@@ -66,7 +67,8 @@ implementation
 
 uses
   MVCFramework.Cache,
-  MVCFramework.Logger;
+  MVCFramework.Logger,
+  System.SysUtils;
 
 constructor TMVCAbstractSerializer.Create;
 begin
@@ -147,6 +149,38 @@ begin
         if Att is MVCNameCaseAttribute then
           Exit(MVCNameCaseAttribute(Att).KeyCase);
   end;
+end;
+
+function TMVCAbstractSerializer.GetObjectTypeOfGenericList(const ATypeInfo: PTypeInfo): TClass;
+
+  function ExtractGenericArguments(ATypeInfo: PTypeInfo): string;
+  var
+    LOpen: Integer;
+    LClose: Integer;
+    LTypeInfoName: string;
+  begin
+    LTypeInfoName := UTF8ToString(ATypeInfo.Name);
+    LOpen := Pos('<', LTypeInfoName);
+    LClose := Pos('>', LTypeInfoName);
+
+    if LOpen <= 0 then
+      Exit('');
+
+    Result := LTypeInfoName.Substring(LOpen, LClose - LOpen - 1);
+  end;
+
+var
+  LType: string;
+  LGetEnumerator: TRttiMethod;
+begin
+  LGetEnumerator := GetRttiContext.GetType(ATypeInfo).GetMethod('GetEnumerator');
+  if not Assigned(LGetEnumerator) then
+  begin
+    Exit(nil);
+  end;
+
+  LType := ExtractGenericArguments(LGetEnumerator.ReturnType.Handle);
+  Result := GetRttiContext.FindType(LType).AsInstance.MetaclassType;
 end;
 
 function TMVCAbstractSerializer.GetRttiContext: TRttiContext;

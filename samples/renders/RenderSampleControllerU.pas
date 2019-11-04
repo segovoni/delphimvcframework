@@ -39,8 +39,7 @@ type
   [MVCPath('/')]
   TRenderSampleController = class(TMVCController)
   protected
-    procedure OnBeforeAction(AContext: TWebContext; const AActionName: string;
-      var AHandled: Boolean); override;
+    procedure OnBeforeAction(AContext: TWebContext; const AActionName: string; var AHandled: Boolean); override;
   public
     [MVCHTTPMethod([httpGET])]
     [MVCPath('/customers/($ID)')]
@@ -54,6 +53,11 @@ type
     [MVCHTTPMethod([httpGET])]
     [MVCPath('/customers')]
     procedure GetCustomersAsDataSetWithRefLinks;
+
+    [MVCHTTPMethod([httpGET])]
+    [MVCPath('/customers/withcallback')]
+    [MVCProduces('application/json')]
+    procedure GetCustomersWithCallback;
 
     [MVCHTTPMethod([httpGET])]
     [MVCPath('/customers/($ID)/asdataset')]
@@ -78,6 +82,11 @@ type
     [MVCPath('/people')]
     [MVCProduces('application/json')]
     procedure GetPeople_AsObjectList;
+
+    [MVCHTTPMethod([httpGET])]
+    [MVCPath('/interfacedpeople')]
+    [MVCProduces('application/json')]
+    procedure GetInterfacedPeople;
 
     [MVCHTTPMethod([httpGET])]
     [MVCPath('/people/hateoas')]
@@ -153,6 +162,10 @@ type
     [MVCHTTPMethod([httpGET])]
     [MVCPath('/customserializationtype')]
     procedure GetCustomSerializationType;
+
+    [MVCHTTPMethod([httpGET])]
+    [MVCPath('/simplearray')]
+    procedure GetSimpleArrays;
 
   end;
 
@@ -289,8 +302,7 @@ begin
   end;
   Context.Response.ContentType := TMVCMediaType.APPLICATION_OCTET_STREAM;
   Context.Response.StatusCode := HTTP_STATUS.OK;
-  Context.Response.CustomHeaders.Values['Content-Disposition'] := 'attachment; filename=' +
-    filename + ';';
+  Context.Response.CustomHeaders.Values['Content-Disposition'] := 'attachment; filename=' + filename + ';';
   Render(TFileStream.Create(lFullFilePath, fmOpenRead or fmShareDenyNone));
 end;
 
@@ -330,8 +342,7 @@ begin
       // We need a non standard representation, let's create a specific serializer.
       lSer := TMVCJsonDataObjectsSerializer.Create;
       try
-        lSer.DataSetToJsonArray(lDM.qryCustomers, lJObj.a['customers'],
-          TMVCNameCase.ncLowerCase, []);
+        lSer.DataSetToJsonArray(lDM.qryCustomers, lJObj.a['customers'], TMVCNameCase.ncLowerCase, []);
         lSer.DataSetToJsonArray(lDM.qryCountry, lJObj.a['countries'], TMVCNameCase.ncLowerCase, []);
       finally
         lSer.Free;
@@ -369,22 +380,97 @@ begin
     Render(lDM.qryCustomers, False,
       procedure(const DS: TDataset; const Links: IMVCLinks)
       begin
-        Links.AddRefLink
-          .Add(HATEOAS.HREF, '/customers/' + DS.FieldByName('cust_no').AsString)
-          .Add(HATEOAS.REL, 'self')
-          .Add(HATEOAS._TYPE, 'application/json');
-        Links.AddRefLink
-          .Add(HATEOAS.HREF, '/customers/' + DS.FieldByName('cust_no').AsString + '/orders')
-          .Add(HATEOAS.REL, 'orders')
-          .Add(HATEOAS._TYPE, 'application/json');
+        Links
+          .AddRefLink
+            .Add(HATEOAS.HREF, '/customers/' + DS.FieldByName('cust_no').AsString)
+            .Add(HATEOAS.REL, 'self')
+            .Add(HATEOAS._TYPE, 'application/json');
+        Links
+          .AddRefLink
+            .Add(HATEOAS.HREF, '/customers/' + DS.FieldByName('cust_no').AsString + '/orders')
+            .Add(HATEOAS.REL, 'orders')
+            .Add(HATEOAS._TYPE, 'application/json');
       end);
   finally
     lDM.Free;
   end;
 end;
 
-procedure TRenderSampleController.GetCustomer_AsDataSetRecord(
-  const ID: Integer);
+procedure TRenderSampleController.GetCustomersWithCallback;
+var
+  lDM: TMyDataModule;
+  lSer: TMVCJsonDataObjectsSerializer;
+  lJArray: TJsonArray;
+  lJobj: TJsonObject;
+begin
+  lDM := TMyDataModule.Create(nil);
+  try
+    lDM.qryCustomers.Open('SELECT * FROM CUSTOMER ORDER BY CUST_NO');
+    lSer := TMVCJsonDataObjectsSerializer.Create;
+    try
+      lJobj := TJsonObject.Create;
+      lJArray := lJObj.A['customers'];
+      lSer.DataSetToJsonArray(lDM.qryCustomers, lJArray, TMVCNameCase.ncLowerCase, [],
+              procedure(const aField: TField; const aJsonObject: TJSONObject;
+                    var Handled: Boolean)
+              var
+                lTmp: String;
+                lPieces: TArray<String>;
+              begin
+                //ignore one attribute
+                if SameText(aField.FieldName, 'contact_last') then
+                begin
+                  Handled := True;
+                end;
+
+                //change the attribute value
+                if SameText(aField.FieldName, 'on_hold') then
+                begin
+                  aJsonObject.B['on_hold'] := not aField.IsNull;
+                  Handled := True;
+                end;
+
+                //change the attribute type!
+                if SameText(aField.FieldName, 'phone_no') then
+                begin
+                  lTmp := aField.AsString.Replace('(','').Replace(')','').Replace('-',' ').Replace('  ',' ', [rfReplaceAll]).Trim;
+                  if lTmp.IsEmpty then
+                  begin
+                    Handled := True;
+                    Exit;
+                  end;
+                  lPieces := lTmp.Split([' ']);
+                  aJsonObject.O['phone'].S['intl_prefix'] := lPieces[0];
+                  Delete(lPieces,0,1);
+                  aJsonObject.O['phone'].S['number'] := String.Join('-', lPieces);
+                  Handled := True;
+                end;
+
+                //add an attribute
+                if SameText(aField.FieldName, 'country') then
+                begin
+                  aJsonObject.B['is_usa_customer'] := SameText(aField.AsString,'usa');
+                end;
+
+                //merge 2 or more attributes
+                if SameText(aField.FieldName, 'contact_first') then
+                begin
+                  aJsonObject.S['contact_full_name'] :=
+                    aField.DataSet.FieldByName('contact_first').AsString + ', ' +
+                    aField.DataSet.FieldByName('contact_last').AsString;
+                  Handled := True;
+                end;
+              end);
+    finally
+      lSer.Free;
+    end;
+    Render(lJobj);
+  finally
+    lDM.Free;
+  end;
+end;
+
+procedure TRenderSampleController.GetCustomer_AsDataSetRecord(const ID: Integer);
 var
   lDM: TMyDataModule;
 begin
@@ -394,13 +480,9 @@ begin
     Render(lDM.qryCustomers, False, [], dstSingleRecord,
       procedure(const DS: TDataset; const Links: IMVCLinks)
       begin
-        Links.AddRefLink
-          .Add(HATEOAS.HREF, '/customers')
-          .Add(HATEOAS.REL, 'customers')
-          .Add(HATEOAS._TYPE, TMVCMediaType.APPLICATION_JSON);
-        Links.AddRefLink
-          .Add(HATEOAS.HREF, '/customers/' + DS.FieldByName('cust_no').AsString)
-          .Add(HATEOAS.REL, 'self')
+        Links.AddRefLink.Add(HATEOAS.HREF, '/customers').Add(HATEOAS.REL, 'customers').Add(HATEOAS._TYPE,
+          TMVCMediaType.APPLICATION_JSON);
+        Links.AddRefLink.Add(HATEOAS.HREF, '/customers/' + DS.FieldByName('cust_no').AsString).Add(HATEOAS.REL, 'self')
           .Add(HATEOAS._TYPE, TMVCMediaType.APPLICATION_JSON);
       end);
   finally
@@ -432,6 +514,11 @@ begin
 
 end;
 
+procedure TRenderSampleController.GetInterfacedPeople;
+begin
+  Render(ToMVCList(GetInterfacedPeopleList, True));
+end;
+
 procedure TRenderSampleController.GetLotOfPeople;
 begin
   Render<TPerson>(GetPeopleList, False);
@@ -439,10 +526,8 @@ end;
 
 procedure TRenderSampleController.GetPerson_AsHTML;
 begin
-  ResponseStream.Append('<html><body><ul>').Append('<li>FirstName: Daniele</li>')
-    .Append('<li>LastName: Teti')
-    .AppendFormat('<li>DOB: %s</li>', [DateToISODate(EncodeDate(1975, 5, 2))])
-    .Append('<li>Married: yes</li>')
+  ResponseStream.Append('<html><body><ul>').Append('<li>FirstName: Daniele</li>').Append('<li>LastName: Teti')
+    .AppendFormat('<li>DOB: %s</li>', [DateToISODate(EncodeDate(1975, 5, 2))]).Append('<li>Married: yes</li>')
     .Append('</ul></body></html>');
   RenderResponseStream;
 end;
@@ -472,11 +557,8 @@ end;
 
 procedure TRenderSampleController.GetPerson_AsText(const ID: Integer);
 begin
-  ResponseStream
-    .AppendLine('ID        :  ' + ID.ToString)
-    .AppendLine('FirstName : Daniele')
-    .AppendLine('LastName  : Teti')
-    .AppendLine('DOB       : ' + DateToStr(EncodeDate(1979, 5, 2)))
+  ResponseStream.AppendLine('ID        :  ' + ID.ToString).AppendLine('FirstName : Daniele')
+    .AppendLine('LastName  : Teti').AppendLine('DOB       : ' + DateToStr(EncodeDate(1979, 5, 2)))
     .AppendLine('Married   : yes');
   RenderResponseStream;
 end;
@@ -507,6 +589,11 @@ begin
   p.Skills := 'Delphi, JavaScript';
   List.Add(p);
   Render<TPerson>(List);
+end;
+
+procedure TRenderSampleController.GetSimpleArrays;
+begin
+  Render(TArrayTest.Create);
 end;
 
 procedure TRenderSampleController.GetPeopleAsCSV;
@@ -627,15 +714,17 @@ begin
   Render<TPerson>(People, True,
     procedure(const APerson: TPerson; const Links: IMVCLinks)
     begin
-      Links.AddRefLink
-        .Add(HATEOAS.HREF, '/people/' + APerson.ID.ToString)
-        .Add(HATEOAS.REL, 'self')
-        .Add(HATEOAS._TYPE, 'application/json')
-        .Add('title', 'Details for ' + APerson.FullName);
-      Links.AddRefLink
-        .Add(HATEOAS.HREF, '/people')
-        .Add(HATEOAS.REL, 'people')
-        .Add(HATEOAS._TYPE, 'application/json');
+      Links
+        .AddRefLink
+          .Add(HATEOAS.HREF, '/people/' + APerson.ID.ToString)
+          .Add(HATEOAS.REL, 'self')
+          .Add(HATEOAS._TYPE, 'application/json')
+          .Add('title', 'Details for ' + APerson.FullName);
+      Links
+        .AddRefLink
+          .Add(HATEOAS.HREF, '/people')
+          .Add(HATEOAS.REL, 'people')
+          .Add(HATEOAS._TYPE, 'application/json');
     end);
 end;
 
@@ -653,14 +742,10 @@ begin
     Render(lPerson, False,
       procedure(const AObject: TObject; const Links: IMVCLinks)
       begin
-        Links.AddRefLink
-          .Add(HATEOAS.HREF, '/people/' + TPerson(AObject).ID.ToString)
-          .Add(HATEOAS.REL, 'self')
+        Links.AddRefLink.Add(HATEOAS.HREF, '/people/' + TPerson(AObject).ID.ToString).Add(HATEOAS.REL, 'self')
           .Add(HATEOAS._TYPE, TMVCMediaType.APPLICATION_JSON);
-        Links.AddRefLink
-          .Add(HATEOAS.HREF, '/people')
-          .Add(HATEOAS.REL, 'people')
-          .Add(HATEOAS._TYPE, TMVCMediaType.APPLICATION_JSON);
+        Links.AddRefLink.Add(HATEOAS.HREF, '/people').Add(HATEOAS.REL, 'people').Add(HATEOAS._TYPE,
+          TMVCMediaType.APPLICATION_JSON);
       end);
   finally
     lPerson.Free;

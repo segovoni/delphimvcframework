@@ -36,10 +36,11 @@ uses
   System.SyncObjs,
   System.IOUtils,
   System.Generics.Collections,
-  // System.JSON,
   Data.DB,
   IdGlobal,
-  IdCoderMIME;
+  IdCoderMIME,
+  IdContext,
+  JsonDataObjects;
 
 {$I dmvcframeworkbuildconsts.inc}
 
@@ -402,7 +403,12 @@ type
   end;
 
   EMVCViewError = class(EMVCException)
-
+  private
+    { private declarations }
+  protected
+    { protected declarations }
+  public
+    { public declarations }
   end;
 
   TMVCRequestParamsTable = class(TDictionary<string, string>)
@@ -562,7 +568,7 @@ function B64Decode(const aValue: string): string;
 
 function URLSafeB64encode(const Value: string; IncludePadding: Boolean; AByteEncoding: IIdTextEncoding = nil): string; overload;
 function URLSafeB64encode(const Value: TBytes; IncludePadding: Boolean): string; overload;
-function URLSafeB64Decode(const Value: string): string;
+function URLSafeB64Decode(const Value: string; AByteEncoding: IIdTextEncoding = nil): string;
 
 function ByteToHex(AInByte: Byte): string;
 function BytesToHex(ABytes: TBytes): string;
@@ -599,11 +605,18 @@ const
     ('224.0.0.0', '239.255.255.255'),
     ('240.0.0.0', '255.255.255.255'));
 
+
+type
+  TMVCParseAuthentication = class
+  public
+    class procedure OnParseAuthentication(AContext: TIdContext; const AAuthType, AAuthData: String; var VUsername,
+      VPassword: String; var VHandled: Boolean);
+  end;
+
 implementation
 
 uses
   IdCoder3to4,
-  JsonDataObjects,
   System.NetEncoding,
   MVCFramework.Serializer.JsonDataObjects,
   MVCFramework.Serializer.Commons;
@@ -616,18 +629,6 @@ begin
   Result := GlobalAppPath;
 end;
 
-function IsReservedOrPrivateIP(const AIP: string): Boolean;
-var
-  I: Integer;
-  IntIP: Cardinal;
-begin
-  Result := False;
-  IntIP := IP2Long(AIP);
-  for I := low(RESERVED_IPS) to high(RESERVED_IPS) do
-    if (IntIP >= IP2Long(RESERVED_IPS[I][1])) and (IntIP <= IP2Long(RESERVED_IPS[I][2])) then
-      Exit(True);
-end;
-
 function IP2Long(const AIP: string): Cardinal;
 var
   lPieces: TArray<string>;
@@ -638,6 +639,18 @@ begin
   Result := (StrToInt(lPieces[0]) * 16777216) + (StrToInt(lPieces[1]) * 65536) +
     (StrToInt(lPieces[2]) * 256) +
     StrToInt(lPieces[3]);
+end;
+
+function IsReservedOrPrivateIP(const AIP: string): Boolean;
+var
+  I: Integer;
+  IntIP: Cardinal;
+begin
+  Result := False;
+  IntIP := IP2Long(AIP);
+  for I := low(RESERVED_IPS) to high(RESERVED_IPS) do
+    if (IntIP >= IP2Long(RESERVED_IPS[I][1])) and (IntIP <= IP2Long(RESERVED_IPS[I][2])) then
+      Exit(True);
 end;
 
 // function IP2Long(const AIP: string): UInt32;
@@ -1075,18 +1088,18 @@ begin
     Result := RTrim(TURLSafeEncode.EncodeBytes(TIdBytes(Value)), '=');
 end;
 
-function URLSafeB64Decode(const Value: string): string;
+function URLSafeB64Decode(const Value: string; AByteEncoding: IIdTextEncoding = nil): string;
 begin
   // SGR 2017-07-03 : b64url might not include padding. Need to add it before decoding
   case Length(Value) mod 4 of
     0:
       begin
-        Result := TURLSafeDecode.DecodeString(Value);
+        Result := TURLSafeDecode.DecodeString(Value, AByteEncoding);
       end;
     2:
-      Result := TURLSafeDecode.DecodeString(Value + '==');
+      Result := TURLSafeDecode.DecodeString(Value + '==', AByteEncoding);
     3:
-      Result := TURLSafeDecode.DecodeString(Value + '=');
+      Result := TURLSafeDecode.DecodeString(Value + '=', AByteEncoding);
   else
     raise EExternalException.Create('Illegal base64url length');
   end;
@@ -1259,6 +1272,13 @@ begin
     lTemplateFileB64.Free;
   end;
 end;
+
+class procedure TMVCParseAuthentication.OnParseAuthentication(AContext: TIdContext; const AAuthType, AAuthData: String; var VUsername,
+      VPassword: String; var VHandled: Boolean);
+begin
+  VHandled := SameText(LowerCase(AAuthType), 'bearer');
+end;
+
 
 initialization
 

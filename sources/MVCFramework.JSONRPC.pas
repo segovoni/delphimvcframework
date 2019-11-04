@@ -521,11 +521,24 @@ begin
         end
         else
         begin
-          if JSONDataValue.Typ <> jdtFloat then
-          begin
-            raise EMVCJSONRPCInvalidRequest.Create(BuildDeclaration(RTTIParameter));
+          // handle integer types passed where a float is expected
+          // FIX https://github.com/danieleteti/delphimvcframework/issues/270
+          case JSONDataValue.Typ of
+            jdtInt:
+              JSONRPCRequestParams.Add(JSONDataValue.IntValue, pdtFloat);
+            jdtLong:
+              JSONRPCRequestParams.Add(JSONDataValue.LongValue, pdtFloat);
+            jdtULong:
+              JSONRPCRequestParams.Add(JSONDataValue.ULongValue, pdtFloat);
+          else
+            begin
+              if JSONDataValue.Typ <> jdtFloat then
+              begin
+                raise EMVCJSONRPCInvalidRequest.Create(BuildDeclaration(RTTIParameter));
+              end;
+              JSONRPCRequestParams.Add(JSONDataValue.FloatValue, pdtFloat);
+            end;
           end;
-          JSONRPCRequestParams.Add(JSONDataValue.FloatValue, pdtFloat);
         end
       end;
     tkEnumeration:
@@ -901,7 +914,7 @@ begin
   lReqID := TValue.Empty;
   SetLength(lParamsToInject, 0);
   try
-    lJSON := StringToJSON(Context.Request.Body);
+    lJSON := StrToJSONObject(Context.Request.Body);
     try
       if not Assigned(lJSON) then
         raise EMVCJSONRPCParseError.Create;
